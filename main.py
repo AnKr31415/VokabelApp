@@ -2,9 +2,9 @@ from PySide6.QtWidgets import(
     QApplication, QLabel, QVBoxLayout, QWidget,
     QLineEdit, QPushButton, QListWidget,
     QStackedWidget, QMessageBox,
-    QHBoxLayout, QSizePolicy          # <- hinzugefügt
+    QHBoxLayout, QSizePolicy, QComboBox
 )
-from PySide6.QtCore import Qt          # <— für UserRole
+from PySide6.QtCore import Qt, QTimer
 
 import sys
 import database
@@ -16,6 +16,10 @@ class VokabelApp(QWidget):
         super().__init__()
         self.setWindowTitle("Vokabel-App")
         self.resize(500, 560)
+        
+        # Intelligent Training Variablen
+        self.current_vokabel_id = None
+        self.current_englisch = ""
 
         # stylesheet laden
         self.setStyleSheet("""
@@ -62,7 +66,7 @@ class VokabelApp(QWidget):
         form.addWidget(self.list_widget)
 
         self.save_button.clicked.connect(self.save_vokabel)
-        self.list_widget.itemClicked.connect(self.confirm_delete)
+        self.list_widget.itemClicked.connect(self.show_delete_or_difficulty)
 
         self.load_vokabeln()
 
@@ -164,59 +168,67 @@ class VokabelApp(QWidget):
             list_item = self.list_widget.item(self.list_widget.count()-1)
             list_item.setData(Qt.UserRole, vok_id)
 
-    def confirm_delete(self, item):
+    def show_delete_or_difficulty(self, item):
+        """Zeigt Menü: Schwierigkeit setzen oder löschen"""
         vok_id = item.data(Qt.UserRole)
         deutsch_englisch = item.text()
+        
         reply = QMessageBox.question(
             self,
-            "Vokabel löschen",
-            f"Soll die Vokabel »{deutsch_englisch}« wirklich gelöscht werden?",
+            "Vokabel verwalten",
+            f"»{deutsch_englisch}«\n\n"
+            "[Yes] Schwierigkeit setzen\n"
+            "[No] Löschen",
             QMessageBox.Yes | QMessageBox.No
         )
+        
         if reply == QMessageBox.Yes:
+            self.set_difficulty_dialog(vok_id)
+        else:
             database.delete_vokabel(vok_id)
             self.load_vokabeln()
+    
+    def set_difficulty_dialog(self, vok_id):
+        """Dialog zum Setzen der Schwierigkeit (1-5)"""
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Schwierigkeit setzen")
+        msg.setText("Wie schwierig ist diese Vokabel für dich?\n"
+                   "1 = Kann ich kaum\n"
+                   "2 = Schwer\n"
+                   "3 = Mittel\n"
+                   "4 = Leicht\n"
+                   "5 = Kann ich sehr gut")
+        
+        # Combo-Box hinzufügen
+        combo = QComboBox()
+        combo.addItems(["1", "2", "3", "4", "5"])
+        combo.setCurrentText("3")  # Standard = Mittel
+        msg.layout().addWidget(combo)
+        
+        msg.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+        
+        if msg.exec() == QMessageBox.Ok:
+            difficulty = int(combo.currentText())
+            database.set_vocabel_difficulty(vok_id, difficulty)
+            self.load_vokabeln()
 
-    def check_vokabel(self):
-        eingabe = self.input.text().strip()
-        data = database.search_vokabel_by_deutsch(self.label_vokabel.text())
-
-        if data:
-            deutsch, englisch = data  # Tupel entpacken
-            # Vergleich mit Eingabe
-            if eingabe.lower() == englisch.lower():
-                self.label.setText("Richtig!")
-            else:
-                self.label.setText(f"Falsch! Die richtige Antwort ist: {englisch}")
-        else:
-            self.label.setText("Keine Vokabel gefunden")
-
-        result = database.get_random_vokabel()
-        if result:
-            self.label_vokabel.setText(result[0])
-        else:
-            self.label_vokabel.setText("– keine Vokabeln –") # type: ignore
-        self.input.clear()
-
-
-    def reload_vokabelliste(self):
-        self.list_widget.clear()
-        vokabeln = database.get_all_vocabeln()  # neue Funktion, die alle Vokabeln liefert
-        for deutsch, englisch in vokabeln:
-            self.list_widget.addItem(f"{deutsch} → {englisch}")
-            
+    
     def _show_random_card(self):
-        vok = database.get_random_vokabel()
+        vok = database.get_smart_vocabel()
         if vok:
-            self.card.setTexts(vok[0], vok[1])
+            self.current_vokabel_id = vok[0]  # Speichere die ID
+            self.card.setTexts(vok[1], vok[2])
         else:
+            self.current_vokabel_id = None
             self.card.setTexts("– keine Vokabeln –", "")
         self.card.setFocus()  # <- Focus auf Karte setzen
 
     def on_card_swiped(self, knows: bool):
-        # hier könntest du z.B. Statistik schreiben oder die Vokabel
-        # aus der Tabelle löschen etc.
-        print("kennt" if knows else "kennt nicht")
+        """Speichert Ergebnis und lädt nächste Vokabel"""
+        if self.current_vokabel_id:
+            # True = rechts gewischt (kennt), False = links gewischt (kennt nicht)
+            database.update_vocabel_result(self.current_vokabel_id, knows)
+        
         self._show_random_card()
 
     def switch_to_flashcard(self):
@@ -234,11 +246,13 @@ class VokabelApp(QWidget):
         self._show_random_card_input()
 
     def _show_random_card_input(self):
-        vok = database.get_random_vokabel()
+        vok = database.get_smart_vocabel()
         if vok:
-            self.label_deutsch.setText(vok[0])
-            self.current_englisch = vok[1]
+            self.current_vokabel_id = vok[0]  # Speichere die ID
+            self.label_deutsch.setText(vok[1])
+            self.current_englisch = vok[2]
         else:
+            self.current_vokabel_id = None
             self.label_deutsch.setText("– keine Vokabeln –")
             self.current_englisch = ""
         self.input_englisch.clear()
@@ -246,7 +260,13 @@ class VokabelApp(QWidget):
 
     def check_input_vokabel(self):
         eingabe = self.input_englisch.text().strip()
-        if eingabe.lower() == self.current_englisch.lower():
+        is_correct = eingabe.lower() == self.current_englisch.lower()
+        
+        # Speichere Ergebnis
+        if self.current_vokabel_id:
+            database.update_vocabel_result(self.current_vokabel_id, is_correct)
+        
+        if is_correct:
             self.label_result.setText("✓ Richtig!")
             self.label_result.setStyleSheet(
                 "background-color: #4CAF50; color: white; "
@@ -263,11 +283,11 @@ class VokabelApp(QWidget):
             )
         self.input_englisch.clear()
         # verzögerte nächste Vokabel laden (z.B. nach 2 Sekunden)
-        from PySide6.QtCore import QTimer
         QTimer.singleShot(2000, self._show_random_card_input)
 
 if __name__ == "__main__":
     database.init_db()
+    database.migrate_db()  # <- Füge neue Spalten hinzu, falls nötig
 
     # optional, vor app = QApplication(...):
     QApplication.setAttribute(Qt.AA_SynthesizeTouchForUnhandledMouseEvents, True)
