@@ -2,7 +2,7 @@ from PySide6.QtWidgets import(
     QApplication, QLabel, QVBoxLayout, QWidget,
     QLineEdit, QPushButton, QListWidget,
     QStackedWidget, QMessageBox,
-    QHBoxLayout, QSizePolicy, QComboBox
+    QHBoxLayout, QSizePolicy, QComboBox, QFileDialog
 )
 from PySide6.QtCore import Qt, QTimer
 
@@ -20,6 +20,9 @@ class VokabelApp(QWidget):
         # Intelligent Training Variablen
         self.current_vokabel_id = None
         self.current_englisch = ""
+
+        # Richtung der Abfrage: "de_to_en" oder "en_to_de"
+        self.direction = "source_to_target"
 
         # stylesheet laden
         self.setStyleSheet("""
@@ -48,6 +51,9 @@ class VokabelApp(QWidget):
         header1.addStretch()
         self.button_next1 = QPushButton("Zur Seite 2")  # <- self. hinzufügen
         self.button_next1.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.button_settings1 = QPushButton("Einstellungen")  # <- Button für Einstellungen
+        self.button_settings1.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        header1.addWidget(self.button_settings1)  # <- Button in Kopfzeile hinzufügen
         header1.addWidget(self.button_next1)
         form.addLayout(header1)
 
@@ -62,10 +68,15 @@ class VokabelApp(QWidget):
         self.save_button = QPushButton("Speichern")
         form.addWidget(self.save_button)
 
+        self.import_button = QPushButton("Aus Excel importieren")
+        form.addWidget(self.import_button)
+
         self.list_widget = QListWidget()
         form.addWidget(self.list_widget)
 
+        self.button_settings1.clicked.connect(lambda: self.pages.setCurrentIndex(2))  # <- Verbindung zum Einstellungsseite hinzufügen
         self.save_button.clicked.connect(self.save_vokabel)
+        self.import_button.clicked.connect(self.import_excel)
         self.list_widget.itemClicked.connect(self.show_delete_or_difficulty)
 
         self.load_vokabeln()
@@ -85,11 +96,20 @@ class VokabelApp(QWidget):
         headline.setStyleSheet("font-size:20pt; font-weight:bold;")
         header_top.addWidget(headline, 1)
         
+        # Richtungsauswahl hinzufügen
+        self.direction_combo = QComboBox()
+        header_top.addWidget(self.direction_combo)
+        
         self.button_next2 = QPushButton("Zur Seite 1")
         self.button_next2.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         header_top.addWidget(self.button_next2)
-        layout2.addLayout(header_top)
 
+        self.settings_button = QPushButton("Einstellungen")
+        self.settings_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        header_top.addWidget(self.settings_button)
+
+        layout2.addLayout(header_top)
+        
         # Umschalter zwischen Flashcard und Eingabe-Modus
         mode_buttons = QHBoxLayout()
         self.btn_flashcard_mode = QPushButton("Flashcard-Modus")
@@ -109,6 +129,13 @@ class VokabelApp(QWidget):
         self.card = FlashCard()
         flashcard_layout.addWidget(self.card, 1)
         self.trainer_stack.addWidget(flashcard_page)
+        
+        lablel_right = QLabel("Kenne ich ", alignment=Qt.AlignRight)
+        lable_left = QLabel("Kenne ich nicht ", alignment=Qt.AlignLeft)
+        lablel_right.setStyleSheet("color: #4CAF50; font-size:10pt;")
+        lable_left.setStyleSheet("color: #f44336; font-size:10pt;")
+        flashcard_layout.addWidget(lablel_right)
+        flashcard_layout.addWidget(lable_left)
 
         # --- Mode 2: Eingabe & Prüfen ---
         input_page = QWidget()
@@ -140,13 +167,60 @@ class VokabelApp(QWidget):
         self.trainer_stack.addWidget(input_page)
 
         # Verbindungen
+        
         self.card.known.connect(self.on_card_swiped)
         self.btn_flashcard_mode.clicked.connect(self.switch_to_flashcard)
         self.btn_input_mode.clicked.connect(self.switch_to_input)
         self.btn_check.clicked.connect(self.check_input_vokabel)
         self.button_next2.clicked.connect(lambda: self.pages.setCurrentIndex(0))
+        self.direction_combo.currentTextChanged.connect(self.on_direction_changed)
+
+        # Seite 3: Einstellungen
+        page3 = QWidget()
+        self.pages.addWidget(page3)
+        layout3 = QVBoxLayout(page3)
+
+        layout3.addWidget(QLabel("Einstellungen", alignment=Qt.AlignCenter, styleSheet="font-size:20pt; font-weight:bold;"))
+
+        # Sprachen auswählen
+        lang_layout = QVBoxLayout()
+        lang_layout.addWidget(QLabel("Muttersprache (Ausgangssprache):"))
+        self.source_combo = QComboBox()
+        self.source_combo.addItems(["Deutsch", "Englisch", "Französisch", "Spanisch", "Italienisch"])
+        lang_layout.addWidget(self.source_combo)
+
+        lang_layout.addWidget(QLabel("Lernsprache (Zielsprache):"))
+        self.target_combo = QComboBox()
+        self.target_combo.addItems(["Deutsch", "Englisch", "Französisch", "Spanisch", "Italienisch"])
+        lang_layout.addWidget(self.target_combo)
+
+        layout3.addLayout(lang_layout)
+
+        # Speichern Button
+        self.save_settings_button = QPushButton("Einstellungen speichern")
+        layout3.addWidget(self.save_settings_button)
+
+        layout3.addStretch()
+
+        # Button zurück
+        self.back_to_page2 = QPushButton("Zurück zum Trainer")
+        layout3.addWidget(self.back_to_page2)
+
+        # Verbindungen für Seite 3
+        self.settings_button.clicked.connect(lambda: self.pages.setCurrentIndex(2))
+        self.save_settings_button.clicked.connect(self.save_settings)
+        self.back_to_page2.clicked.connect(lambda: self.pages.setCurrentIndex(1))
 
         self._show_random_card()
+        self.load_settings()
+
+    def on_direction_changed(self):
+        """Aktualisiert die Richtung und lädt die aktuelle Karte neu"""
+        self.direction = self.direction_combo.currentData()
+        if self.trainer_stack.currentIndex() == 0:  # Flashcard-Modus
+            self._show_random_card()
+        else:  # Eingabe-Modus
+            self._show_random_card_input()
 
     def save_vokabel(self):
         deutsch = self.de_input.text()
@@ -212,12 +286,18 @@ class VokabelApp(QWidget):
             database.set_vocabel_difficulty(vok_id, difficulty)
             self.load_vokabeln()
 
+
+    ##---------------- Zweite Seite: Flashcard & Eingabe-Modus -----------------------------------------------------------------------------------------------------------------------------------
+    
     
     def _show_random_card(self):
         vok = database.get_smart_vocabel()
         if vok:
             self.current_vokabel_id = vok[0]  # Speichere die ID
-            self.card.setTexts(vok[1], vok[2])
+            if self.direction == "source_to_target":
+                self.card.setTexts(vok[1], vok[2])  # source vorne, target hinten
+            else:
+                self.card.setTexts(vok[2], vok[1])  # target vorne, source hinten
         else:
             self.current_vokabel_id = None
             self.card.setTexts("– keine Vokabeln –", "")
@@ -249,14 +329,21 @@ class VokabelApp(QWidget):
         vok = database.get_smart_vocabel()
         if vok:
             self.current_vokabel_id = vok[0]  # Speichere die ID
-            self.label_deutsch.setText(vok[1])
-            self.current_englisch = vok[2]
+            if self.direction == "source_to_target":
+                self.label_frage.setText(f"Wie heißt das auf {self.target_lang}?")
+                self.label_deutsch.setText(vok[1])
+                self.current_englisch = vok[2]
+            else:
+                self.label_frage.setText(f"Wie heißt das auf {self.source_lang}?")
+                self.label_deutsch.setText(vok[2])
+                self.current_englisch = vok[1]
         else:
             self.current_vokabel_id = None
             self.label_deutsch.setText("– keine Vokabeln –")
             self.current_englisch = ""
         self.input_englisch.clear()
-        self.label_result.clear()  # <- erst hier clearen, nach Verzögerung
+        # Hinweis: label_result wird nicht mehr hier gelöscht,
+        # damit die Meldung länger sichtbar bleibt
 
     def check_input_vokabel(self):
         eingabe = self.input_englisch.text().strip()
@@ -282,8 +369,59 @@ class VokabelApp(QWidget):
                 "font-size: 12pt; padding: 15px; border-radius: 4px;"
             )
         self.input_englisch.clear()
-        # verzögerte nächste Vokabel laden (z.B. nach 2 Sekunden)
-        QTimer.singleShot(2000, self._show_random_card_input)
+        # verzögerte nächste Vokabel laden (z.B. nach 0.5 Sekunden)
+        QTimer.singleShot(500, self._show_random_card_input)
+        # Ergebnis-Meldung länger anzeigen (ca. 2 Sekunden)
+        QTimer.singleShot(2000, self.label_result.clear)
+
+    def import_excel(self):
+        """Öffnet Dateiauswahl für Excel-Datei und importiert Vokabeln"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Excel-Datei auswählen",
+            "",
+            "Excel-Dateien (*.xlsx *.xls);;Alle Dateien (*)"
+        )
+        
+        if file_path:
+            result = database.import_from_excel(file_path)
+            QMessageBox.information(self, "Import abgeschlossen", result)
+            self.load_vokabeln()  # Liste aktualisieren
+
+    def load_settings(self):
+        """Lädt Einstellungen und aktualisiert UI"""
+        self.source_lang = database.get_setting('source_language', 'Deutsch')
+        self.target_lang = database.get_setting('target_language', 'Englisch')
+        
+        # Aktualisiere Combos
+        self.source_combo.setCurrentText(self.source_lang)
+        self.target_combo.setCurrentText(self.target_lang)
+        
+        # Aktualisiere direction_combo
+        self.direction_combo.clear()
+        self.direction_combo.addItem(f"{self.source_lang} → {self.target_lang}", "source_to_target")
+        self.direction_combo.addItem(f"{self.target_lang} → {self.source_lang}", "target_to_source")
+        self.direction = "source_to_target"
+        
+        # Aktualisiere Platzhalter auf Seite 1
+        self.de_input.setPlaceholderText(self.source_lang)
+        self.en_input.setPlaceholderText(self.target_lang)
+
+    def save_settings(self):
+        """Speichert Einstellungen"""
+        source = self.source_combo.currentText()
+        target = self.target_combo.currentText()
+        
+        if source == target:
+            QMessageBox.warning(self, "Fehler", "Muttersprache und Lernsprache dürfen nicht identisch sein.")
+            return
+        
+        database.set_setting('source_language', source)
+        database.set_setting('target_language', target)
+        
+        self.load_settings()  # UI aktualisieren
+        
+        QMessageBox.information(self, "Gespeichert", "Einstellungen wurden gespeichert.")
 
 if __name__ == "__main__":
     database.init_db()

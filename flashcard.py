@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt, QEvent, QPoint, Property, Signal, QEasingCurve
 from PySide6.QtWidgets import QWidget, QStackedWidget, QLabel, QVBoxLayout
-from PySide6.QtGui import QMouseEvent, QPainter, QTransform
+from PySide6.QtGui import QMouseEvent, QPainter, QTransform, QColor
 from PySide6.QtCore import QPropertyAnimation
 
 class FlashCard(QWidget):
@@ -126,6 +126,10 @@ class FlashCard(QWidget):
         elif self._offset != 0.0:
             painter = QPainter(self)
             try:
+                # Hintergrundfarbe je nach Richtung
+                if self._pending_direction is not None:
+                    color = QColor('#4CAF50') if self._pending_direction else QColor('#f44336')
+                    painter.fillRect(self.rect(), color)
                 painter.translate(self._offset, 0)
                 self.stack.render(painter, QPoint(0,0))
             finally:
