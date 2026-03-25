@@ -1,6 +1,6 @@
 """Debug-Version der App mit Print-Ausgaben"""
 import sys
-import database
+import src.logic.database as database
 
 # Enable debug mode
 DEBUG = True
@@ -26,7 +26,7 @@ database.get_smart_vocabel = debug_get_smart_vocabel
 database.update_vocabel_result = debug_update_vocabel_result
 
 # Jetzt die echte App importieren
-from main import VokabelApp
+from src.main import VokabelApp
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
 

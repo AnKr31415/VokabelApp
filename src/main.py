@@ -7,8 +7,26 @@ from PySide6.QtWidgets import(
 from PySide6.QtCore import Qt, QTimer
 
 import sys
-import database
-from flashcard import FlashCard      # neu
+import logic.database as database
+from logic.flashcard import FlashCard      # neu
+
+import os
+
+# 1. Den Pfad zum Ordner dieser Datei (main.py) ermitteln
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# 2. Den Pfad zur .qss Datei zusammenbauen 
+# (Geht davon aus, dass style.qss in src/ui/ liegt)
+stylesheet_path = os.path.join(current_dir, "ui", "style.qss")
+
+# 3. Datei sicher öffnen
+try:
+    with open(stylesheet_path, "r", encoding="utf-8") as f:
+        style = f.read()
+        # Hier deine App-Instanz nutzen, z.B.:
+        # app.setStyleSheet(style)
+except FileNotFoundError:
+    print(f"Fehler: Datei nicht gefunden unter {stylesheet_path}")
 
 class VokabelApp(QWidget):
 
@@ -41,7 +59,7 @@ class VokabelApp(QWidget):
         self.pages = QStackedWidget()
         main_layout.addWidget(self.pages)
 
-        # Seite 1
+        # ------------------------------------------- Seite 1 -------------------------------------------------------------------------------------
         page1 = QWidget()
         self.pages.addWidget(page1)
         form = QVBoxLayout(page1)
@@ -85,7 +103,7 @@ class VokabelApp(QWidget):
         self.button_next1.clicked.connect(lambda: self.pages.setCurrentIndex(1))
         self.button_next1.clicked.connect(self.switch_to_flashcard)
 
-        # Seite 2
+        #--------------------------- Seite 2 ------------------------------------------------------------------------------------------------------------
         page2 = QWidget()
         self.pages.addWidget(page2)
         layout2 = QVBoxLayout(page2)
@@ -174,6 +192,8 @@ class VokabelApp(QWidget):
         self.btn_check.clicked.connect(self.check_input_vokabel)
         self.button_next2.clicked.connect(lambda: self.pages.setCurrentIndex(0))
         self.direction_combo.currentTextChanged.connect(self.on_direction_changed)
+
+        #----------Seite 3: Einstellungen-----------------------------------------------------------------------------------------------------------------------------------
 
         # Seite 3: Einstellungen
         page3 = QWidget()
@@ -286,10 +306,8 @@ class VokabelApp(QWidget):
             database.set_vocabel_difficulty(vok_id, difficulty)
             self.load_vokabeln()
 
+# -------------------- Flashcard-Logik --------------------------------------------------------------------------------------------------------------
 
-    ##---------------- Zweite Seite: Flashcard & Eingabe-Modus -----------------------------------------------------------------------------------------------------------------------------------
-    
-    
     def _show_random_card(self):
         vok = database.get_smart_vocabel()
         if vok:
