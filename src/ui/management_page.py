@@ -11,6 +11,9 @@ class ManagementPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
 
+        self.btn_back = QPushButton("⬅ Hauptmenü")
+        layout.addWidget(self.btn_back)
+
         # Header
         header = QHBoxLayout()
         header.addWidget(QLabel("<b>Meine Vokabeln</b>", styleSheet="font-size: 18pt;"))
