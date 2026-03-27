@@ -46,6 +46,22 @@ class ManagementPage(QWidget):
         card_layout.addWidget(self.btn_add)
         layout.addWidget(card)
 
+        # Legende für Schwierigkeit
+        legend_frame = QFrame()
+        legend_layout = QHBoxLayout(legend_frame)
+
+        legend_layout.addWidget(QLabel("<b>Schwierigkeit:</b>"))
+
+        legend_layout.addWidget(QLabel("★☆☆☆☆ = sehr schwer"))
+        legend_layout.addWidget(QLabel("★★☆☆☆ = schwer"))
+        legend_layout.addWidget(QLabel("★★★☆☆ = mittel"))
+        legend_layout.addWidget(QLabel("★★★★☆ = leicht"))
+        legend_layout.addWidget(QLabel("★★★★★ = sehr leicht"))
+
+        legend_layout.addStretch()
+
+        layout.addWidget(legend_frame)
+
         # Liste
         self.list_widget = QListWidget()
         layout.addWidget(self.list_widget)

@@ -15,11 +15,14 @@ from ui.trainer_page import TrainerPage
 from ui.settings_page import SettingsPage
 from ui.ai_page import AIPage
 from ui.start_page import StartPage
+from ui.vocab_item_widget import VocabItemWidget
+from PySide6.QtWidgets import QListWidgetItem
 
 import logic.ai_handler as ai_handler
 
-from PySide6.QtWidgets import QApplication,QPushButton ,QStackedWidget, QVBoxLayout, QWidget, QMessageBox
+from PySide6.QtWidgets import QSplashScreen,QApplication,QPushButton ,QStackedWidget, QVBoxLayout, QWidget, QMessageBox
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize
 
 from google import genai
 import os
@@ -65,6 +68,7 @@ class VokabelApp(QWidget):
 
         self.setup_connections()
         self.apply_styles()
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def apply_styles(self):
         """Lädt das Stylesheet"""
@@ -113,6 +117,9 @@ class VokabelApp(QWidget):
 
         # --- 6. SETTINGS LOGIK ---
         self.settings_page.btn_save.clicked.connect(self.save_settings)
+
+        self.start_page.btn_train.clicked.connect(self.switch_to_trainer)
+
     
     # --- DATENBANK-FUNKTIONEN ---
     def add_vokabel(self):
@@ -127,14 +134,27 @@ class VokabelApp(QWidget):
 
     def load_vokabeln(self):
         self.management_page.list_widget.clear()
-        for v_id, de, en in database.get_all_vocabeln():
-            item = self.management_page.list_widget.addItem(f"{de} ➔ {en}")
 
+        for v_id, de, en in database.get_all_vocabeln():
+            stats = database.get_vocabel_stats(v_id)
+            difficulty = stats[2] if stats else 3
+
+            item = QListWidgetItem()
+            item.setSizeHint(QSize(0, 90))  # <-- WICHTIG! Höhe der Box
+
+            widget = VocabItemWidget(v_id, de, en, difficulty, self)
+
+            self.management_page.list_widget.addItem(item)
+            self.management_page.list_widget.setItemWidget(item, widget)
+            
     def delete_vokabel_dialog(self, item):
         v_id = item.data(Qt.UserRole)
         if QMessageBox.question(self, "Löschen", "Vokabel wirklich löschen?") == QMessageBox.Yes:
             database.delete_vokabel(v_id)
             self.load_vokabeln()
+
+    def set_vocabel_difficulty(self, vok_id, difficulty):
+        database.set_vocabel_difficulty(vok_id, difficulty)
 
     def refresh_task(self):
         vok = database.get_smart_vocabel()
@@ -144,18 +164,6 @@ class VokabelApp(QWidget):
             src, trg = (vok[1], vok[2]) if self.direction == "source_to_target" else (vok[2], vok[1])
             self.current_target_text = trg
             
-            # --- KI LOGIK START ---
-            # Wir holen uns Hilfe für das Zielwort
-            ai_data = ai_handler.get_ai_support(trg, self.target_lang)
-            
-            if ai_data:
-                sentence = ai_data.get('sentence', '')
-                mnemonic = ai_data.get('mnemonic', '')
-                # Du musst in deiner TrainerPage entsprechende Labels haben:
-                self.trainer_page.label_sentence.setText(f"Kontext: {sentence}")
-                self.trainer_page.label_mnemonic.setText(f"Tipp: {mnemonic}")
-            # --- KI LOGIK ENDE ---
-
             direction_label = self.target_lang if self.direction == "source_to_target" else self.source_lang
             self.trainer_page.set_task(src, trg, direction_label)
 
@@ -207,12 +215,27 @@ class VokabelApp(QWidget):
         self.refresh_task()
 
     def handle_swipe(self, known):
+        # 1. Visuelles Feedback anzeigen
+        self.trainer_page.highlight_label(known)
+
+        # 2. Nach kurzer Zeit wieder zurücksetzen
+        QTimer.singleShot(800, self.reset_label_styles)
+
+        # 3. Ergebnis speichern
         database.update_vocabel_result(self.current_vokabel_id, known)
-        self.refresh_task()
+
+        # 4. Neue Aufgabe laden (leicht verzögert, damit man das Feedback sieht)
+        QTimer.singleShot(800, self.refresh_task)
 
     def change_direction(self):
         self.direction = self.trainer_page.direction_combo.currentData() or "source_to_target"
         self.refresh_task()
+    
+    def reset_label_styles(self):
+        self.trainer_page.known_label.setFont(self.trainer_page.font_normal)
+        self.trainer_page.unknown_label.setFont(self.trainer_page.font_normal)
+        self.trainer_page.known_label.setStyleSheet(self.trainer_page.style_normal_green)
+        self.trainer_page.unknown_label.setStyleSheet(self.trainer_page.style_normal_red)
 
     def load_settings(self):
         self.source_lang = database.get_setting('source_language', 'Deutsch')
@@ -229,6 +252,17 @@ class VokabelApp(QWidget):
         self.load_settings()
         QMessageBox.information(self, "Erfolg", "Gespeichert!")
 
+    def switch_to_trainer(self):
+        self.pages.setCurrentIndex(2)
+        self.setFocus()
+
+    def flip(self):
+        self.is_flipped = not self.is_flipped
+        if self.is_flipped:
+            self.label.setText(self.current_target_text)
+        else:
+            self.label.setText(self.current_source_text)
+
     def import_excel(self):
         from PySide6.QtWidgets import QFileDialog
         path, _ = QFileDialog.getOpenFileName(self, "Excel wählen", "", "*.xlsx")
@@ -236,6 +270,26 @@ class VokabelApp(QWidget):
             msg = database.import_from_excel(path)
             QMessageBox.information(self, "Import", msg)
             self.load_vokabeln()
+
+    # In main.py
+
+    def keyPressEvent(self, event):
+        if self.pages.currentIndex() == 2: # Trainer-Seite
+            if event.key() == Qt.Key_Right:
+                self.trainer_page.highlight_label(True)
+                # Wir geben Qt 200ms Zeit zum Zeichnen, bevor wir die Karte wechseln
+                QTimer.singleShot(200, lambda: self.handle_swipe(True))
+            
+            elif event.key() == Qt.Key_Left:
+                self.trainer_page.highlight_label(False)
+                QTimer.singleShot(200, lambda: self.handle_swipe(False))
+
+    def finish_task_animation(self, known):
+        # Erst Labels zurücksetzen
+        self.trainer_page.known_label.setStyleSheet(self.trainer_page.style_normal_green)
+        self.trainer_page.unknown_label.setStyleSheet(self.trainer_page.style_normal_red)
+        # Dann die nächste Vokabel laden
+        self.handle_swipe(known)
 
     def generate_standalone_mnemonic(self):
         wort = self.ai_page.word_input.text().strip()
@@ -256,10 +310,37 @@ class VokabelApp(QWidget):
         else:
             self.ai_page.result_display.setText("Fehler: Konnte keine Verbindung zur KI herstellen.")
 
-# --- DER START-BLOCK (Ganz wichtig!) ---
+# --- DER ANGEPASSTE START-BLOCK ---
 if __name__ == "__main__":
-    database.init_db()
     app = QApplication(sys.argv)
+
+    # 1. Splash Screen Setup
+    # Du kannst hier ein QPixmap mit einem Logo laden: QPixmap("assets/logo.png")
+    # Wenn du kein Bild hast, erstellt dieser Code ein einfaches graues Rechteck als Platzhalter:
+    from PySide6.QtGui import QPixmap, QColor, QPainter
+    
+    splash_pix = QPixmap(400, 300)
+    splash_pix.fill(QColor("#2c3e50")) # Eine Farbe passend zu deinem App-Stil
+    
+    splash = QSplashScreen(splash_pix)
+    splash.show()
+    
+    # 2. Feedback geben während des Ladens
+    splash.showMessage("Initialisiere Datenbank...", Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom, Qt.GlobalColor.white)
+    app.processEvents() # Wichtig, damit das Fenster sofort zeichnet
+    database.init_db()
+    
+    splash.showMessage("Lade UI-Komponenten...", Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom, Qt.GlobalColor.white)
+    app.processEvents()
+    
+    # 3. Das Hauptfenster erstellen (hier passiert deine ganze Logik)
     window = VokabelApp()
-    window.show() # Ohne das bleibt das Fenster unsichtbar!
+    
+    splash.showMessage("App bereit!", Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom, Qt.GlobalColor.white)
+    app.processEvents()
+    
+    # 4. Splash Screen beenden und Fenster zeigen
+    window.show()
+    splash.finish(window) 
+    
     sys.exit(app.exec())

@@ -19,3 +19,15 @@ QListWidget {
     background: white;
     border: 1px solid #ccc;
 }
+
+QListWidget {
+    background: #f5f6fa;
+    border: none;
+}
+
+QListWidget::item {
+    background: white;
+    border-radius: 8px;
+    margin: 5px;
+    padding: 5px;
+}
