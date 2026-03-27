@@ -28,14 +28,14 @@ from google import genai
 import os
 from dotenv import load_dotenv
 
-class VokabelApp(QWidget):
+class vocabelApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Vokabel-App Professional")
+        self.setWindowTitle("vocabel-App Professional")
         self.resize(550, 650)
         
         # App-Status / Variablen
-        self.current_vokabel_id = None
+        self.current_vocabel_id = None
         self.current_target_text = ""
         self.direction = "source_to_target"
         
@@ -44,7 +44,7 @@ class VokabelApp(QWidget):
         
         # Daten laden
         self.load_settings()
-        self.load_vokabeln()
+        self.load_vocabeln()
         self.refresh_task()
 
     def init_ui(self):
@@ -94,9 +94,9 @@ class VokabelApp(QWidget):
         self.ai_page.btn_back.clicked.connect(lambda: self.pages.setCurrentIndex(0))
 
         # --- 3. MANAGEMENT LOGIK ---
-        self.management_page.btn_add.clicked.connect(self.add_vokabel)
+        self.management_page.btn_add.clicked.connect(self.add_vocabel)
         self.management_page.btn_import.clicked.connect(self.import_excel)
-        self.management_page.list_widget.itemClicked.connect(self.delete_vokabel_dialog)
+        self.management_page.list_widget.itemClicked.connect(self.delete_vocabel_dialog)
         
         # Optional: Shortcut von Management direkt zu Settings oder Trainer
         self.management_page.btn_settings.clicked.connect(lambda: self.pages.setCurrentIndex(3))
@@ -122,55 +122,85 @@ class VokabelApp(QWidget):
 
     
     # --- DATENBANK-FUNKTIONEN ---
-    def add_vokabel(self):
+    def add_vocabel(self):
         de = self.management_page.de_input.text().strip()
         en = self.management_page.en_input.text().strip()
         if de and en:
             database.add_vocabel(de, en)
             self.management_page.de_input.clear()
             self.management_page.en_input.clear()
-            self.load_vokabeln()
+            self.load_vocabeln()
             self.refresh_task()
 
-    def load_vokabeln(self):
+    def load_vocabeln(self):
+        """Lädt nur vocabeln, die in den gewählten Sprachen Werte haben."""
         self.management_page.list_widget.clear()
 
-        for v_id, de, en in database.get_all_vocabeln():
-            stats = database.get_vocabel_stats(v_id)
-            difficulty = stats[2] if stats else 3
+        # Aktuell ausgewählte Sprachen
+        src = self.source_lang
+        trg = self.target_lang
 
+        # Alle vocabeln aus der Datenbank abrufen
+        all_vocs = database.get_all_vocabeln()  # Liefert z.B. (id, de, en, fr, es, difficulty)
+
+        for v in all_vocs:
+            v_id = v[0]
+            # Mapping der Sprachen auf die Werte der vocabel
+            lang_map = {
+                "Deutsch": v[1],
+                "Englisch": v[2],
+                "Französisch": v[3],
+                "Spanisch": v[4]
+            }
+
+            # Überspringe vocabeln, die in einer der beiden aktiven Sprachen leer sind
+            if not lang_map[src] or not lang_map[trg]:
+                continue
+
+            # Schwierigkeit abrufen, falls vorhanden
+            difficulty = v[5] if len(v) > 5 else 3
+
+            # Nur die Texte der aktiven Sprachen an das Widget übergeben
+            src_text = lang_map[src]
+            trg_text = lang_map[trg]
+
+            # Neues Listenelement erstellen
             item = QListWidgetItem()
-            item.setSizeHint(QSize(0, 90))  # <-- WICHTIG! Höhe der Box
+            item.setSizeHint(QSize(0, 90))  # Höhe der Box
 
-            widget = VocabItemWidget(v_id, de, en, difficulty, self)
+            # vocabel-Widget erstellen
+            widget = VocabItemWidget(v_id, src_text, trg_text, difficulty, self)
 
+            # Widget in die Liste einfügen
             self.management_page.list_widget.addItem(item)
             self.management_page.list_widget.setItemWidget(item, widget)
-            
-    def delete_vokabel_dialog(self, item):
+                
+    def delete_vocabel_dialog(self, item):
         v_id = item.data(Qt.UserRole)
-        if QMessageBox.question(self, "Löschen", "Vokabel wirklich löschen?") == QMessageBox.Yes:
-            database.delete_vokabel(v_id)
-            self.load_vokabeln()
+        if QMessageBox.question(self, "Löschen", "vocabel wirklich löschen?") == QMessageBox.Yes:
+            database.delete_vocabel(v_id)
+            self.load_vocabeln()
 
     def set_vocabel_difficulty(self, vok_id, difficulty):
         database.set_vocabel_difficulty(vok_id, difficulty)
 
     def refresh_task(self):
-        vok = database.get_smart_vocabel()
+        """Lädt die nächste vocabel für den Trainer in den aktiven Sprachen."""
+        vok = database.get_smart_vocabel(source=self.source_lang, target=self.target_lang)
         if vok:
-            self.current_vokabel_id = vok[0]
-            # Bestimme Quell- und Zielwort
-            src, trg = (vok[1], vok[2]) if self.direction == "source_to_target" else (vok[2], vok[1])
+            self.current_vocabel_id = vok['id']
+
+            src, trg = vok[self.source_lang], vok[self.target_lang]
             self.current_target_text = trg
-            
+
             direction_label = self.target_lang if self.direction == "source_to_target" else self.source_lang
             self.trainer_page.set_task(src, trg, direction_label)
+
 
     def check_input(self):
         guess = self.trainer_page.input_field.text().strip().lower()
         correct = guess == self.current_target_text.lower()
-        database.update_vocabel_result(self.current_vokabel_id, correct)
+        database.update_vocabel_result(self.current_vocabel_id, correct)
         self.trainer_page.label_result.setText("✓ Richtig!" if correct else f"✗ Falsch: {self.current_target_text}")
         self.trainer_page.label_result.setStyleSheet("color: green;" if correct else "color: red;")
         QTimer.singleShot(1500, self.next_task_input)
@@ -222,7 +252,7 @@ class VokabelApp(QWidget):
         QTimer.singleShot(800, self.reset_label_styles)
 
         # 3. Ergebnis speichern
-        database.update_vocabel_result(self.current_vokabel_id, known)
+        database.update_vocabel_result(self.current_vocabel_id, known)
 
         # 4. Neue Aufgabe laden (leicht verzögert, damit man das Feedback sieht)
         QTimer.singleShot(800, self.refresh_task)
@@ -240,9 +270,11 @@ class VokabelApp(QWidget):
     def load_settings(self):
         self.source_lang = database.get_setting('source_language', 'Deutsch')
         self.target_lang = database.get_setting('target_language', 'Englisch')
+        
         self.trainer_page.direction_combo.clear()
         self.trainer_page.direction_combo.addItem(f"{self.source_lang} ➔ {self.target_lang}", "source_to_target")
         self.trainer_page.direction_combo.addItem(f"{self.target_lang} ➔ {self.source_lang}", "target_to_source")
+        
         self.settings_page.source_combo.setCurrentText(self.source_lang)
         self.settings_page.target_combo.setCurrentText(self.target_lang)
 
@@ -269,7 +301,7 @@ class VokabelApp(QWidget):
         if path:
             msg = database.import_from_excel(path)
             QMessageBox.information(self, "Import", msg)
-            self.load_vokabeln()
+            self.load_vocabeln()
 
     # In main.py
 
@@ -288,7 +320,7 @@ class VokabelApp(QWidget):
         # Erst Labels zurücksetzen
         self.trainer_page.known_label.setStyleSheet(self.trainer_page.style_normal_green)
         self.trainer_page.unknown_label.setStyleSheet(self.trainer_page.style_normal_red)
-        # Dann die nächste Vokabel laden
+        # Dann die nächste vocabel laden
         self.handle_swipe(known)
 
     def generate_standalone_mnemonic(self):
@@ -334,7 +366,7 @@ if __name__ == "__main__":
     app.processEvents()
     
     # 3. Das Hauptfenster erstellen (hier passiert deine ganze Logik)
-    window = VokabelApp()
+    window = vocabelApp()
     
     splash.showMessage("App bereit!", Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom, Qt.GlobalColor.white)
     app.processEvents()
